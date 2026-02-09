@@ -27,7 +27,7 @@ jobs:
           FROG_USERNAME: ${{ secrets.FROG_USERNAME }}
           SMS_RECIPIENTS: ${{ secrets.SMS_RECIPIENTS }}
         run: |
-          cat > sms_config.json << EOF
+          cat > sms_config.json << 'EOF'
           {
             "provider": "frog",
             "frog": {
