@@ -1,0 +1,158 @@
+{
+  "flood": {
+    "accuracy": 1.0,
+    "f1_score": 1.0,
+    "roc_auc": 1.0,
+    "train_samples": 1348,
+    "test_samples": 337,
+    "positive_rate": 0.0011869436201780415,
+    "cv_f1_mean": NaN,
+    "cv_f1_std": NaN,
+    "top_features": [
+      [
+        "precip_intensity",
+        0.9999982953111397
+      ],
+      [
+        "precip",
+        1.7046888602394088e-06
+      ],
+      [
+        "temp_max",
+        0.0
+      ],
+      [
+        "temp_min",
+        0.0
+      ],
+      [
+        "temp_mean",
+        0.0
+      ],
+      [
+        "temp_range",
+        0.0
+      ],
+      [
+        "temp_max_roll3",
+        0.0
+      ],
+      [
+        "temp_max_roll7",
+        0.0
+      ],
+      [
+        "temp_max_roll14",
+        0.0
+      ],
+      [
+        "temp_max_std7",
+        0.0
+      ]
+    ]
+  },
+  "heat": {
+    "accuracy": 1.0,
+    "f1_score": 1.0,
+    "roc_auc": 1.0,
+    "train_samples": 1348,
+    "test_samples": 337,
+    "positive_rate": 0.16735905044510385,
+    "cv_f1_mean": 0.9966101694915255,
+    "cv_f1_std": 0.006779661016949134,
+    "top_features": [
+      [
+        "temp_max",
+        0.28173959106597585
+      ],
+      [
+        "heat_index",
+        0.12359262985319228
+      ],
+      [
+        "temp_mean",
+        0.08142223097235063
+      ],
+      [
+        "temp_max_roll3",
+        0.07843371600782773
+      ],
+      [
+        "temp_max_roll14",
+        0.04794077643816253
+      ],
+      [
+        "temp_max_roll7",
+        0.04780933882517473
+      ],
+      [
+        "temp_range",
+        0.044066434854895954
+      ],
+      [
+        "humidity_roll7",
+        0.038754321808012616
+      ],
+      [
+        "month",
+        0.03345491710992851
+      ],
+      [
+        "humidity_roll14",
+        0.029453621067807287
+      ]
+    ]
+  },
+  "drought": {
+    "accuracy": 1.0,
+    "f1_score": 1.0,
+    "roc_auc": 1.0,
+    "train_samples": 1348,
+    "test_samples": 337,
+    "positive_rate": 0.14836795252225518,
+    "cv_f1_mean": 0.9981308411214954,
+    "cv_f1_std": 0.0037383177570093464,
+    "top_features": [
+      [
+        "precip_sum7",
+        0.9944501626250499
+      ],
+      [
+        "precip_trend_7d",
+        0.005549837374943335
+      ],
+      [
+        "temp_mean",
+        1.9132654138309177e-15
+      ],
+      [
+        "aridity_index",
+        8.917218756726282e-16
+      ],
+      [
+        "et0_sum7",
+        8.773483067667792e-16
+      ],
+      [
+        "temp_max_roll3",
+        7.618592166717802e-16
+      ],
+      [
+        "et0_sum14",
+        5.484304052035895e-16
+      ],
+      [
+        "precip_intensity",
+        5.285899986679887e-16
+      ],
+      [
+        "precip_sum30",
+        4.627648497957662e-16
+      ],
+      [
+        "temp_max_roll7",
+        3.480604139332902e-16
+      ]
+    ]
+  }
+}

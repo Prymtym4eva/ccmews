@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.db
+*.log
+*.pid
+.DS_Store
+sms_config.json
+sent_alerts.json
+venv/

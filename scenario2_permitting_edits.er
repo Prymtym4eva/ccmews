@@ -1,0 +1,97 @@
+// Scenario 2: Permitting Effects Changes — Engineers Review
+// Branch Versioning Workflow
+
+Start [shape: oval, color: green] {
+  label: "Engineers Design Fiber Plans"
+}
+
+EngVersion [shape: rectangle, color: blue] {
+  label: "Engineers work in ENGINEERING version"
+}
+
+ReconcilePost1 [shape: rectangle, color: purple] {
+  label: "GIS Admin reconciles ENGINEERING → DEFAULT and Posts"
+}
+
+PermitSubmit [shape: rectangle, color: orange] {
+  label: "Permitting submits design to City Council"
+}
+
+CouncilDecision [shape: diamond, color: yellow] {
+  label: "Council Decision?"
+}
+
+Approved [shape: rectangle, color: green] {
+  label: "Permitting updates status to 'Approved' in PERMITTING version"
+}
+
+PermEdits [shape: rectangle, color: orange] {
+  label: "Permitting effects geometry/route changes directly in PERMITTING version"
+}
+
+PermStatusUpdate [shape: rectangle, color: orange] {
+  label: "Permitting updates status fields and council comments in PERMITTING version"
+}
+
+EngReview [shape: diamond, color: blue] {
+  label: "Engineers review Permitting edits (read-only view of PERMITTING version)"
+}
+
+EngApprove [shape: rectangle, color: green] {
+  label: "Engineers approve Permitting changes"
+}
+
+EngReject [shape: rectangle, color: red] {
+  label: "Engineers flag issues — Permitting revises in PERMITTING version"
+}
+
+AdminReconcile [shape: rectangle, color: purple] {
+  label: "GIS Admin reconciles PERMITTING → DEFAULT, resolves conflicts, Posts"
+}
+
+EngSync [shape: rectangle, color: blue] {
+  label: "Engineers reconcile ENGINEERING version against updated DEFAULT"
+}
+
+EditorTracking [shape: rectangle, color: grey] {
+  label: "Editor Tracking logs all changes (who, when, version)"
+}
+
+FeatureLayerViews [shape: rectangle, color: grey] {
+  label: "Separate Feature Layer Views enforce field-level edit control per team"
+}
+
+FinalPublish [shape: oval, color: green] {
+  label: "DEFAULT updated — All versions in sync"
+}
+
+// Flow connections
+Start > EngVersion
+EngVersion > ReconcilePost1: Design ready for submission
+ReconcilePost1 > PermitSubmit: Design visible in DEFAULT
+PermitSubmit > CouncilDecision
+
+CouncilDecision > Approved: Approved — no changes needed
+CouncilDecision > PermEdits: Redesign required — Permitting edits directly
+
+Approved > PermStatusUpdate
+PermStatusUpdate > AdminReconcile: Status update only
+
+PermEdits > PermStatusUpdate: Route changed + status updated
+PermStatusUpdate > EngReview: Permitting notifies Engineers
+
+EngReview > EngApprove: Changes accepted
+EngReview > EngReject: Issues found
+
+EngReject > PermEdits: Permitting revises
+
+EngApprove > AdminReconcile
+AdminReconcile > EngSync: Engineers pull latest DEFAULT into their version
+EngSync > FinalPublish
+
+// Supporting configuration
+EngVersion > EditorTracking
+PermEdits > EditorTracking
+AdminReconcile > EditorTracking
+EngVersion > FeatureLayerViews
+PermEdits > FeatureLayerViews

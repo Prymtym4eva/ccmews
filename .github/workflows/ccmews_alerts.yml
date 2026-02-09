@@ -1,0 +1,51 @@
+name: CCMEWS Climate Alert Service
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  climate-alert-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests pandas numpy scikit-learn httpx scipy
+      
+      - name: Create SMS configuration
+        run: |
+          cat > sms_config.json << 'CONFIGEND'
+          {
+            "provider": "frog",
+            "frog": {
+              "api_key": "${{ secrets.FROG_API_KEY }}",
+              "username": "${{ secrets.FROG_USERNAME }}",
+              "sender_id": "ccmews",
+              "use_test_api": false
+            },
+            "enabled": true,
+            "test_mode": false,
+            "alert_thresholds": {
+              "flood_risk": 0.45,
+              "heat_risk": 0.45,
+              "drought_risk": 0.45,
+              "composite_risk": 0.50,
+              "rainfall_mm": 30,
+              "temperature_c": 37
+            },
+            "recipients": ${{ secrets.SMS_RECIPIENTS }}
+          }
+          CONFIGEND
+      
+      - name: Run CCMEWS Alert Check
+        run: python ccmews_scheduler_service.py --run-once
