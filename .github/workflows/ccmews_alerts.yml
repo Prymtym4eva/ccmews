@@ -19,17 +19,20 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: |
-          pip install requests pandas numpy scikit-learn httpx scipy
+        run: pip install requests pandas numpy scikit-learn httpx scipy
       
       - name: Create SMS configuration
+        env:
+          FROG_API_KEY: ${{ secrets.FROG_API_KEY }}
+          FROG_USERNAME: ${{ secrets.FROG_USERNAME }}
+          SMS_RECIPIENTS: ${{ secrets.SMS_RECIPIENTS }}
         run: |
-          cat > sms_config.json << 'CONFIGEND'
+          cat > sms_config.json << EOF
           {
             "provider": "frog",
             "frog": {
-              "api_key": "${{ secrets.FROG_API_KEY }}",
-              "username": "${{ secrets.FROG_USERNAME }}",
+              "api_key": "$FROG_API_KEY",
+              "username": "$FROG_USERNAME",
               "sender_id": "ccmews",
               "use_test_api": false
             },
@@ -43,9 +46,9 @@ jobs:
               "rainfall_mm": 30,
               "temperature_c": 37
             },
-            "recipients": ${{ secrets.SMS_RECIPIENTS }}
+            "recipients": $SMS_RECIPIENTS
           }
-          CONFIGEND
+          EOF
       
       - name: Run CCMEWS Alert Check
         run: python ccmews_scheduler_service.py --run-once
