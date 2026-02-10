@@ -739,7 +739,7 @@ with st.sidebar:
     # District header
     st.markdown("""
     <div style="text-align: center; padding: 10px; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); border-radius: 10px; margin-bottom: 15px;">
-        <h2 style="color: white; margin: 0;">🌍 AI\ML Powered CCMEWS</h2>
+        <h2 style="color: white; margin: 0;">🌍 CCMEWS</h2>
         <p style="color: #ddd; margin: 5px 0; font-size: 14px;">North Tongu District</p>
     </div>
     """, unsafe_allow_html=True)
@@ -831,16 +831,24 @@ with st.sidebar:
             st.rerun()
     with col2:
         if st.button("📡 Fetch New"):
-            # Trigger data fetch
+            # Trigger data fetch AND AI predictions
             try:
-                from ccmews_data_service import update_climate_data
-                with st.spinner("Fetching..."):
+                with st.spinner("Fetching weather data..."):
+                    from ccmews_data_service import update_climate_data, MONITORING_GRID
                     result = update_climate_data()
-                    st.success(f"✅ {result.get('records', 0)} records")
-                    st.cache_data.clear()
-                    st.rerun()
+                    st.success(f"✅ {result.get('records', 0)} weather records")
+                
+                with st.spinner("Running AI predictions..."):
+                    from ccmews_ai_engine import run_prediction_cycle
+                    pred_result = run_prediction_cycle(MONITORING_GRID)
+                    st.success(f"✅ {pred_result.get('predictions_generated', 0)} predictions")
+                
+                st.cache_data.clear()
+                st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
 # Build data
 communities_df_all = build_communities_df()  # All data points (for interpolation)
@@ -1856,7 +1864,7 @@ elif page == "🏘️ Communities":
 st.divider()
 st.markdown(f"""
 <div style="text-align: center; color: #666; padding: 10px;">
-    🌍 <strong>AI\ML Powered CCMEWS</strong> - North Tongu District Climate Monitoring<br>
+    🌍 <strong>CCMEWS</strong> - North Tongu District Climate Monitoring<br>
     <small>Volta Region, Ghana | {len(communities_df)} monitoring points | API: {API_BASE}</small>
 </div>
 """, unsafe_allow_html=True)
