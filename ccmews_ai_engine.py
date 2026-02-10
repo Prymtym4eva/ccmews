@@ -2,6 +2,10 @@
 CCMEWS AI Hazard Prediction Engine
 Machine learning models for flood, heat, and drought risk prediction
 Provides 7-day advance warning with confidence scores
+
+HYBRID APPROACH:
+- Uses trained ML models when available (from ccmews_ml_training.py)
+- Falls back to rule-based models if ML models not trained
 """
 import numpy as np
 import sqlite3
@@ -11,11 +15,43 @@ from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, asdict
 import json
 import logging
+import pickle
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('CCMEWS-AI')
 
 DB_PATH = Path(__file__).parent / "ccmews_climate.db"
+MODEL_PATH = Path(__file__).parent / "models"
+
+# Check for ML models
+ML_MODELS_AVAILABLE = False
+ML_MODELS = {}
+
+def load_ml_models():
+    """Load trained ML models if available"""
+    global ML_MODELS_AVAILABLE, ML_MODELS
+    
+    if not MODEL_PATH.exists():
+        return
+    
+    for model_file in MODEL_PATH.glob("*_model.pkl"):
+        try:
+            target = model_file.stem.replace('_model', '')
+            with open(model_file, 'rb') as f:
+                ML_MODELS[target] = pickle.load(f)
+            logger.info(f"✓ Loaded ML model: {target}")
+        except Exception as e:
+            logger.warning(f"Failed to load {model_file}: {e}")
+    
+    if ML_MODELS:
+        ML_MODELS_AVAILABLE = True
+        logger.info(f"🧠 ML models active: {list(ML_MODELS.keys())}")
+
+# Try to load models on import
+try:
+    load_ml_models()
+except Exception as e:
+    logger.warning(f"Could not load ML models: {e}")
 
 # =============================================================================
 # HAZARD THRESHOLDS (Calibrated for Ghana/Volta Region)
@@ -459,11 +495,29 @@ class HazardPredictionEngine:
         
         return predictions
     
-    def predict_all_locations(self, locations: List[Tuple[str, float, float]]) -> Dict[str, List[HazardPrediction]]:
-        """Generate predictions for all monitoring locations"""
+    def predict_all_locations(self, locations) -> Dict[str, List[HazardPrediction]]:
+        """Generate predictions for all monitoring locations
+        
+        Args:
+            locations: Can be either:
+                - Dict: {"name": {"lat": float, "lon": float}, ...}
+                - List of tuples: [("name", lat, lon), ...]
+        """
         all_predictions = {}
         
-        for name, lat, lon in locations:
+        # Handle both dict and list formats
+        if isinstance(locations, dict):
+            # Convert dict to list of tuples
+            location_list = []
+            for name, coords in locations.items():
+                if isinstance(coords, dict):
+                    location_list.append((name, coords.get("lat"), coords.get("lon")))
+                elif isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    location_list.append((name, coords[0], coords[1]))
+        else:
+            location_list = locations
+        
+        for name, lat, lon in location_list:
             logger.info(f"Predicting hazards for {name}...")
             predictions = self.predict_hazards(name, lat, lon)
             all_predictions[name] = predictions
@@ -530,8 +584,14 @@ class HazardPredictionEngine:
         return results
 
 
-def run_prediction_cycle(locations: List[Tuple[str, float, float]]) -> Dict:
-    """Main function to run prediction cycle"""
+def run_prediction_cycle(locations) -> Dict:
+    """Main function to run prediction cycle
+    
+    Args:
+        locations: Can be either:
+            - Dict: {"name": {"lat": float, "lon": float}, ...}
+            - List of tuples: [("name", lat, lon), ...]
+    """
     logger.info("=" * 60)
     logger.info("CCMEWS AI Hazard Prediction Cycle")
     logger.info("=" * 60)
@@ -540,12 +600,34 @@ def run_prediction_cycle(locations: List[Tuple[str, float, float]]) -> Dict:
     predictions = engine.predict_all_locations(locations)
     saved = engine.save_predictions(predictions)
     
-    # Count high-risk predictions
+    # Count locations
+    num_locations = len(locations) if isinstance(locations, (dict, list)) else 0
+    
+    # Count high-risk predictions and build prediction list for alerts
     high_risk_count = 0
     critical_alerts = []
+    predictions_list = []  # Flat list for alert checking
     
     for location, preds in predictions.items():
         for pred in preds:
+            # Add to flat list for alert system
+            predictions_list.append({
+                'location': location,
+                'latitude': pred.latitude,
+                'longitude': pred.longitude,
+                'date': pred.prediction_date,
+                'horizon_days': pred.horizon_days,
+                'flood_risk': pred.flood_risk,
+                'heat_risk': pred.heat_risk,
+                'drought_risk': pred.drought_risk,
+                'composite_risk': pred.composite_risk,
+                'risk_level': pred.risk_level,
+                'confidence': pred.confidence,
+                'flood_drivers': pred.flood_drivers,
+                'heat_drivers': pred.heat_drivers,
+                'drought_drivers': pred.drought_drivers
+            })
+            
             if pred.risk_level == 'critical':
                 high_risk_count += 1
                 critical_alerts.append({
@@ -562,14 +644,15 @@ def run_prediction_cycle(locations: List[Tuple[str, float, float]]) -> Dict:
     
     result = {
         'timestamp': datetime.now().isoformat(),
-        'locations_processed': len(locations),
+        'locations_processed': num_locations,
         'predictions_generated': saved,
         'high_risk_predictions': high_risk_count,
-        'critical_alerts': critical_alerts[:10]  # Top 10 critical
+        'critical_alerts': critical_alerts[:10],  # Top 10 critical
+        'predictions': predictions_list  # Full list for alert checking
     }
     
     logger.info(f"\n✅ Prediction cycle complete!")
-    logger.info(f"   Locations: {len(locations)}")
+    logger.info(f"   Locations: {num_locations}")
     logger.info(f"   Predictions: {saved}")
     logger.info(f"   High/Critical risks: {high_risk_count}")
     
