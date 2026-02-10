@@ -86,7 +86,7 @@ class AlertMessage:
 
 
 class SMSConfig:
-    """SMS configuration manager"""
+    """SMS configuration manager - supports both file and Streamlit secrets"""
     
     DEFAULT_CONFIG = {
         "provider": "frog",  # "frog" (recommended), "africastalking", or "twilio"
@@ -123,8 +123,46 @@ class SMSConfig:
         self.config_path = config_path
         self.config = self._load_config()
     
+    def _load_from_streamlit_secrets(self) -> Dict:
+        """Load configuration from Streamlit secrets"""
+        try:
+            import streamlit as st
+            if hasattr(st, 'secrets') and 'sms' in st.secrets:
+                secrets = st.secrets['sms']
+                config = self.DEFAULT_CONFIG.copy()
+                
+                # Load basic settings
+                config['provider'] = secrets.get('provider', 'frog')
+                config['enabled'] = secrets.get('enabled', False)
+                config['test_mode'] = secrets.get('test_mode', True)
+                
+                # Load Frog config
+                if 'frog' in secrets:
+                    frog = secrets['frog']
+                    config['frog'] = {
+                        'api_key': frog.get('api_key', ''),
+                        'username': frog.get('username', ''),
+                        'sender_id': frog.get('sender_id', 'CCMEWS'),
+                        'use_test_api': frog.get('use_test_api', False),
+                    }
+                
+                # Load thresholds
+                if 'alert_thresholds' in secrets:
+                    config['alert_thresholds'].update(dict(secrets['alert_thresholds']))
+                
+                # Load recipients
+                if 'recipients' in secrets:
+                    config['recipients'] = [dict(r) for r in secrets['recipients']]
+                
+                logger.info("Loaded SMS config from Streamlit secrets")
+                return config
+        except Exception as e:
+            logger.debug(f"Could not load Streamlit secrets: {e}")
+        return None
+    
     def _load_config(self) -> Dict:
-        """Load configuration from file or create default"""
+        """Load configuration from file, Streamlit secrets, or create default"""
+        # First, try loading from file
         if self.config_path.exists():
             with open(self.config_path, 'r') as f:
                 config = json.load(f)
@@ -133,17 +171,27 @@ class SMSConfig:
                     if key not in config:
                         config[key] = value
                 return config
-        else:
-            self.save_config(self.DEFAULT_CONFIG)
-            return self.DEFAULT_CONFIG.copy()
+        
+        # Second, try loading from Streamlit secrets (for Streamlit Cloud)
+        streamlit_config = self._load_from_streamlit_secrets()
+        if streamlit_config:
+            return streamlit_config
+        
+        # Finally, use default config
+        self.save_config(self.DEFAULT_CONFIG)
+        return self.DEFAULT_CONFIG.copy()
     
     def save_config(self, config: Dict = None):
         """Save configuration to file"""
         if config is None:
             config = self.config
-        with open(self.config_path, 'w') as f:
-            json.dump(config, f, indent=2)
-        logger.info(f"Configuration saved to {self.config_path}")
+        try:
+            with open(self.config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            logger.info(f"Configuration saved to {self.config_path}")
+        except Exception as e:
+            # On Streamlit Cloud, we may not have write access
+            logger.warning(f"Could not save config: {e}")
     
     def add_recipient(self, name: str, phone: str, role: str, district: str):
         """Add an alert recipient"""
