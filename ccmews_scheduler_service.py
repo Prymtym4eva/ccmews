@@ -10,23 +10,37 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import sys
+import os
 
 # Ensure modules are importable
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Helper for Streamlit Cloud compatibility
+def get_writable_path(filename):
+    """Get writable path, using /tmp on Streamlit Cloud"""
+    if os.environ.get('STREAMLIT_SHARING_MODE') or os.path.exists('/mount/src'):
+        return Path('/tmp') / filename
+    else:
+        return Path(__file__).parent / filename
+
+# Configure logging
+log_handlers = [logging.StreamHandler()]
+try:
+    log_file = get_writable_path("ccmews_scheduler.log")
+    log_handlers.append(logging.FileHandler(log_file))
+except Exception:
+    pass  # Skip file logging on read-only filesystem
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).parent / "ccmews_scheduler.log")
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger('CCMEWS-Scheduler')
 
 # Configuration
 UPDATE_INTERVAL_HOURS = 5
-STATUS_FILE = Path(__file__).parent / "ccmews_status.json"
+STATUS_FILE = get_writable_path("ccmews_status.json")
 ALERT_COOLDOWN_HOURS = 12  # Minimum hours between duplicate alerts
 
 
@@ -34,7 +48,7 @@ class AutomaticAlertChecker:
     """Automatically checks predictions and sends SMS alerts when thresholds exceeded"""
     
     def __init__(self):
-        self.alert_history_file = Path(__file__).parent / "sent_alerts.json"
+        self.alert_history_file = get_writable_path("sent_alerts.json")
         self.alert_history = self._load_alert_history()
         
         # Default thresholds (can be overridden from sms_config.json)

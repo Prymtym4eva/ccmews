@@ -21,6 +21,7 @@ from pathlib import Path
 import logging
 from typing import Dict, List, Optional, Tuple
 import numpy as np
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -29,8 +30,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger('CCMEWS-DataService')
 
-# Database path
-DB_PATH = Path(__file__).parent / "ccmews_climate.db"
+# Database path - use /tmp on Streamlit Cloud (read-only filesystem)
+def get_db_path():
+    """Get database path, using /tmp on Streamlit Cloud"""
+    # Check if running on Streamlit Cloud
+    if os.environ.get('STREAMLIT_SHARING_MODE') or os.path.exists('/mount/src'):
+        return Path('/tmp/ccmews_climate.db')
+    else:
+        return Path(__file__).parent / "ccmews_climate.db"
+
+DB_PATH = get_db_path()
 
 # North Tongu monitoring points (subset for API calls - grid coverage)
 MONITORING_GRID = [

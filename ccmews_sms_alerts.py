@@ -29,10 +29,19 @@ import uuid
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('CCMEWS-SMS')
 
-# Paths
+# Paths - use /tmp on Streamlit Cloud (read-only filesystem)
 BASE_DIR = Path(__file__).parent
-CONFIG_PATH = BASE_DIR / "sms_config.json"
-ALERT_LOG_PATH = BASE_DIR / "alert_log.db"
+
+def get_writable_path(filename):
+    """Get writable path, using /tmp on Streamlit Cloud"""
+    import os
+    if os.environ.get('STREAMLIT_SHARING_MODE') or os.path.exists('/mount/src'):
+        return Path('/tmp') / filename
+    else:
+        return BASE_DIR / filename
+
+CONFIG_PATH = BASE_DIR / "sms_config.json"  # Try local first, SMSConfig handles fallback
+ALERT_LOG_PATH = get_writable_path("alert_log.db")
 
 # Try to import required libraries
 REQUESTS_AVAILABLE = False

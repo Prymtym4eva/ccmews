@@ -16,12 +16,33 @@ from dataclasses import dataclass, asdict
 import json
 import logging
 import pickle
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('CCMEWS-AI')
 
-DB_PATH = Path(__file__).parent / "ccmews_climate.db"
-MODEL_PATH = Path(__file__).parent / "models"
+# Paths - use /tmp on Streamlit Cloud (read-only filesystem)
+def get_db_path():
+    """Get database path, using /tmp on Streamlit Cloud"""
+    if os.environ.get('STREAMLIT_SHARING_MODE') or os.path.exists('/mount/src'):
+        return Path('/tmp/ccmews_climate.db')
+    else:
+        return Path(__file__).parent / "ccmews_climate.db"
+
+def get_model_path():
+    """Get model path - try local first, then /tmp on Streamlit Cloud"""
+    local_path = Path(__file__).parent / "models"
+    if local_path.exists():
+        return local_path
+    # On Streamlit Cloud, models might be in the repo
+    if os.path.exists('/mount/src'):
+        repo_path = Path('/mount/src/ccmews/models')
+        if repo_path.exists():
+            return repo_path
+    return local_path
+
+DB_PATH = get_db_path()
+MODEL_PATH = get_model_path()
 
 # Check for ML models
 ML_MODELS_AVAILABLE = False
