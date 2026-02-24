@@ -127,6 +127,50 @@ def load_district_boundary():
 # Load boundary data
 DISTRICT_BOUNDARY, DISTRICT_BOUNDS, DISTRICT_CENTER, GEOJSON_DATA = load_district_boundary()
 
+# Load Health Facilities GeoJSON
+HEALTH_FACILITIES_PATH = os.path.join(os.path.dirname(__file__), "health_facilities.geojson")
+
+@st.cache_data
+def load_health_facilities():
+    """Load health facilities from GeoJSON file"""
+    try:
+        with open(HEALTH_FACILITIES_PATH, 'r') as f:
+            geojson_data = json.load(f)
+        
+        facilities = []
+        for feature in geojson_data.get('features', []):
+            props = feature.get('properties', {})
+            # Use Latitude/Longitude from properties (more accurate than projected coordinates)
+            facilities.append({
+                'name': props.get('FacilityNa', 'Unknown'),
+                'type': props.get('Type', 'Unknown'),
+                'town': props.get('Town', 'Unknown'),
+                'ownership': props.get('Ownership', 'Unknown'),
+                'lat': props.get('Latitude', 0),
+                'lon': props.get('Longitude', 0)
+            })
+        
+        return facilities
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        return []
+
+# Health facility type colors
+HEALTH_FACILITY_COLORS = {
+    'Hospital': '#e31a1c',      # Red - highest level of care
+    'Health Centre': '#ff7f00', # Orange - secondary care
+    'Clinic': '#33a02c',        # Green - primary care
+    'CHPS': '#1f78b4',          # Blue - community health
+}
+
+def get_health_facility_color(facility_type):
+    """Get color for health facility type"""
+    return HEALTH_FACILITY_COLORS.get(facility_type, '#666666')
+
+# Load health facilities data
+HEALTH_FACILITIES = load_health_facilities()
+
 st.set_page_config(
     page_title="CCMEWS - North Tongu District",
     page_icon="🌍",
@@ -473,7 +517,7 @@ def create_interpolated_grid(df, value_col, resolution=60):
     
     return grid_lon, grid_lat, grid_values
 
-def create_raster_map(df, value_col, title, colorscale, show_river=False, resolution=60, marker_df=None):
+def create_raster_map(df, value_col, title, colorscale, show_river=False, resolution=60, marker_df=None, show_health_facilities=False):
     """Create raster heatmap for North Tongu
     
     Args:
@@ -484,6 +528,7 @@ def create_raster_map(df, value_col, title, colorscale, show_river=False, resolu
         show_river: Whether to show Volta River
         resolution: Grid resolution
         marker_df: Optional separate DataFrame for markers (if None, uses df)
+        show_health_facilities: Whether to show health facilities layer
     """
     bounds = NORTH_TONGU["bounds"]
     grid_lon, grid_lat, grid_values = create_interpolated_grid(df, value_col, resolution)
@@ -549,6 +594,42 @@ def create_raster_map(df, value_col, title, colorscale, show_river=False, resolu
             fill='none'
         ))
     
+    # Health Facilities layer
+    if show_health_facilities and HEALTH_FACILITIES:
+        # Group facilities by type for legend
+        facility_types = {'Hospital': [], 'Health Centre': [], 'Clinic': [], 'CHPS': []}
+        for facility in HEALTH_FACILITIES:
+            if facility['lat'] and facility['lon']:
+                ftype = facility['type']
+                if ftype in facility_types:
+                    facility_types[ftype].append(facility)
+                else:
+                    facility_types['CHPS'].append(facility)  # Default to CHPS
+        
+        # Add each facility type as a separate trace
+        symbols = {'Hospital': 'cross', 'Health Centre': 'square', 'Clinic': 'diamond', 'CHPS': 'circle'}
+        colors = {'Hospital': '#e31a1c', 'Health Centre': '#ff7f00', 'Clinic': '#33a02c', 'CHPS': '#1f78b4'}
+        
+        for ftype, facilities in facility_types.items():
+            if facilities:
+                fig.add_trace(go.Scatter(
+                    x=[f['lon'] for f in facilities],
+                    y=[f['lat'] for f in facilities],
+                    mode='markers',
+                    marker=dict(
+                        size=12,
+                        color=colors[ftype],
+                        symbol=symbols[ftype],
+                        line=dict(width=1, color='white')
+                    ),
+                    name=f"🏥 {ftype}",
+                    hovertemplate="<b>%{customdata[0]}</b><br>" +
+                                 "Type: %{customdata[1]}<br>" +
+                                 "Town: %{customdata[2]}<br>" +
+                                 "Ownership: %{customdata[3]}<extra></extra>",
+                    customdata=[[f['name'], f['type'], f['town'], f['ownership']] for f in facilities]
+                ))
+    
     # Community markers (grouped by type for cleaner legend)
     for _, row in display_df.iterrows():
         if row['type'] == 'capital':
@@ -588,7 +669,7 @@ def create_raster_map(df, value_col, title, colorscale, show_river=False, resolu
     
     return fig
 
-def create_folium_map(df, value_col, title, gradient=None, marker_df=None):
+def create_folium_map(df, value_col, title, gradient=None, marker_df=None, show_health_facilities=False):
     """Create Folium interactive map for North Tongu
     
     Args:
@@ -597,6 +678,7 @@ def create_folium_map(df, value_col, title, gradient=None, marker_df=None):
         title: Map title
         gradient: Color gradient for heatmap
         marker_df: Optional separate DataFrame for markers (if None, uses df)
+        show_health_facilities: Whether to show health facilities layer
     """
     center = NORTH_TONGU["center"]
     bounds = NORTH_TONGU["bounds"]
@@ -685,6 +767,37 @@ def create_folium_map(df, value_col, title, gradient=None, marker_df=None):
             tooltip='North Tongu District'
         ).add_to(m)
     
+    # Add Health Facilities layer if enabled
+    if show_health_facilities and HEALTH_FACILITIES:
+        # Create a feature group for health facilities
+        health_group = folium.FeatureGroup(name='Health Facilities')
+        
+        for facility in HEALTH_FACILITIES:
+            if facility['lat'] and facility['lon']:
+                color = get_health_facility_color(facility['type'])
+                
+                # Use different icons based on facility type
+                if facility['type'] == 'Hospital':
+                    icon = folium.Icon(color='red', icon='hospital-o', prefix='fa')
+                elif facility['type'] == 'Health Centre':
+                    icon = folium.Icon(color='orange', icon='plus-square', prefix='fa')
+                elif facility['type'] == 'Clinic':
+                    icon = folium.Icon(color='green', icon='medkit', prefix='fa')
+                else:  # CHPS
+                    icon = folium.Icon(color='blue', icon='heartbeat', prefix='fa')
+                
+                folium.Marker(
+                    location=[facility['lat'], facility['lon']],
+                    popup=f"<b>{facility['name']}</b><br>"
+                          f"Type: {facility['type']}<br>"
+                          f"Town: {facility['town']}<br>"
+                          f"Ownership: {facility['ownership']}",
+                    tooltip=f"{facility['name']} ({facility['type']})",
+                    icon=icon
+                ).add_to(health_group)
+        
+        health_group.add_to(m)
+    
     return m
 
 def create_3d_surface(df, value_col, title, colorscale):
@@ -739,7 +852,7 @@ with st.sidebar:
     # District header
     st.markdown("""
     <div style="text-align: center; padding: 10px; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); border-radius: 10px; margin-bottom: 15px;">
-        <h2 style="color: white; margin: 0;">🌍 AI/ML Based CCMEWS</h2>
+        <h2 style="color: white; margin: 0;">🌍 CCMEWS</h2>
         <p style="color: #ddd; margin: 5px 0; font-size: 14px;">North Tongu District</p>
     </div>
     """, unsafe_allow_html=True)
@@ -804,6 +917,8 @@ with st.sidebar:
     page = st.radio("Navigation", [
         "🗺️ Hazard Maps",
         "🔮 AI Predictions",  # NEW PAGE
+        "📅 Event Forecast",  # NEW - Next rain/heat
+        "📲 SMS Alerts",      # NEW - SMS configuration
         "🌡️ Climate Maps",
         "📊 Dashboard",
         "📈 Time Series",
@@ -818,6 +933,9 @@ with st.sidebar:
     resolution = st.slider("Resolution", 30, 100, 60, help="Higher = more detail")
     show_river = st.checkbox("Show Volta River", value=True)
     show_stations = st.checkbox("Show Monitoring Stations", value=True, help="Toggle visibility of automated monitoring stations")
+    show_health_facilities = st.checkbox("Show Health Facilities", value=False, help="Toggle visibility of health facilities (hospitals, clinics, CHPS)")
+    if HEALTH_FACILITIES:
+        st.caption(f"🏥 {len(HEALTH_FACILITIES)} facilities available")
     
     st.divider()
     
@@ -829,16 +947,24 @@ with st.sidebar:
             st.rerun()
     with col2:
         if st.button("📡 Fetch New"):
-            # Trigger data fetch
+            # Trigger data fetch AND AI predictions
             try:
-                from ccmews_data_service import update_climate_data
-                with st.spinner("Fetching..."):
+                with st.spinner("Fetching weather data..."):
+                    from ccmews_data_service import update_climate_data, MONITORING_GRID
                     result = update_climate_data()
-                    st.success(f"✅ {result.get('records', 0)} records")
-                    st.cache_data.clear()
-                    st.rerun()
+                    st.success(f"✅ {result.get('records', 0)} weather records")
+                
+                with st.spinner("Running AI predictions..."):
+                    from ccmews_ai_engine import run_prediction_cycle
+                    pred_result = run_prediction_cycle(MONITORING_GRID)
+                    st.success(f"✅ {pred_result.get('predictions_generated', 0)} predictions")
+                
+                st.cache_data.clear()
+                st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
 # Build data
 communities_df_all = build_communities_df()  # All data points (for interpolation)
@@ -916,7 +1042,8 @@ if page == "🗺️ Hazard Maps":
             colorscales[hazard_type],
             show_river=(show_river and hazard_type == 'flood'),
             resolution=resolution,
-            marker_df=communities_df
+            marker_df=communities_df,
+            show_health_facilities=show_health_facilities
         )
         st.plotly_chart(fig, use_container_width=True)
         
@@ -925,7 +1052,8 @@ if page == "🗺️ Hazard Maps":
             communities_df_all, hazard_type,
             f"{hazard_type.title()} Risk",
             gradients[hazard_type],
-            marker_df=communities_df
+            marker_df=communities_df,
+            show_health_facilities=show_health_facilities
         )
         st_folium(folium_map, width=None, height=550)
         
@@ -939,6 +1067,12 @@ if page == "🗺️ Hazard Maps":
     **Risk Levels:** 🟢 Low (<0.3) | 🟡 Moderate (0.3-0.5) | 🟠 High (0.5-0.7) | 🔴 Critical (>0.7)
     """)
     
+    # Health Facilities Legend (when enabled)
+    if show_health_facilities:
+        st.markdown("""
+        **Health Facilities:** 🔴 Hospital | 🟠 Health Centre | 🟢 Clinic | 🔵 CHPS
+        """)
+    
     st.divider()
     
     # All hazards comparison
@@ -947,23 +1081,27 @@ if page == "🗺️ Hazard Maps":
     
     with col1:
         fig = create_raster_map(communities_df_all, "flood", "Flood Risk", colorscales["flood"], 
-                               show_river=show_river, resolution=40, marker_df=communities_df)
+                               show_river=show_river, resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
         
         fig = create_raster_map(communities_df_all, "drought", "Drought Risk", colorscales["drought"],
-                               resolution=40, marker_df=communities_df)
+                               resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         fig = create_raster_map(communities_df_all, "heat", "Heat Risk", colorscales["heat"],
-                               resolution=40, marker_df=communities_df)
+                               resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
         
         fig = create_raster_map(communities_df_all, "composite", "Composite Risk", colorscales["composite"],
-                               resolution=40, marker_df=communities_df)
+                               resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1197,6 +1335,340 @@ elif page == "🔮 AI Predictions":
         st.dataframe(sample_df, use_container_width=True, hide_index=True)
 
 # ============================================================================
+# EVENT FORECAST PAGE - Next Rainfall & Heat Events
+# ============================================================================
+elif page == "📅 Event Forecast":
+    st.title("📅 Weather Event Forecast")
+    st.caption("Predicting when the next rainfall and heat events will occur")
+    
+    # Try to import forecaster
+    try:
+        from ccmews_event_forecast import EventForecaster, RainfallEvent, HeatEvent
+        forecaster = EventForecaster()
+        forecaster_available = True
+    except ImportError:
+        forecaster_available = False
+        st.warning("⚠️ Event forecasting module not available. Install with required dependencies.")
+    
+    if forecaster_available:
+        # Key locations to forecast
+        forecast_locations = [
+            ("Battor", 6.0833, 0.4200),
+            ("Adidome", 6.1200, 0.3150),
+            ("Sogakope", 6.0100, 0.4200),
+            ("Mepe", 6.0500, 0.3850),
+        ]
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("🌧️ Next Rainfall Events")
+            
+            for name, lat, lon in forecast_locations:
+                with st.spinner(f"Checking {name}..."):
+                    try:
+                        rainfall = forecaster.predict_next_rainfall(lat, lon, name)
+                        if rainfall:
+                            with st.container():
+                                if rainfall.days_until == 0:
+                                    urgency = "🔴"
+                                    timing = "TODAY"
+                                elif rainfall.days_until == 1:
+                                    urgency = "🟠"
+                                    timing = "TOMORROW"
+                                else:
+                                    urgency = "🟢"
+                                    timing = f"In {rainfall.days_until} days"
+                                
+                                intensity_color = {
+                                    "light": "gray",
+                                    "moderate": "blue",
+                                    "heavy": "orange",
+                                    "very_heavy": "red",
+                                    "extreme": "darkred"
+                                }.get(rainfall.intensity, "blue")
+                                
+                                st.markdown(f"""
+                                **{urgency} {name}** - {timing}
+                                - 📅 {rainfall.start_date} at {rainfall.start_time}
+                                - 💧 {rainfall.total_precipitation_mm:.1f}mm ({rainfall.intensity.replace('_', ' ').title()})
+                                - ⏱️ ~{rainfall.duration_hours} hours
+                                - 📊 Probability: {rainfall.probability:.0%}
+                                """)
+                                st.divider()
+                        else:
+                            st.info(f"☀️ **{name}**: No significant rain in 7-day forecast")
+                    except Exception as e:
+                        st.error(f"Error fetching {name}: {e}")
+        
+        with col2:
+            st.subheader("🔥 Next Heat Events")
+            
+            for name, lat, lon in forecast_locations:
+                with st.spinner(f"Checking {name}..."):
+                    try:
+                        heat = forecaster.predict_next_heat_event(lat, lon, name)
+                        if heat:
+                            with st.container():
+                                if heat.days_until == 0:
+                                    urgency = "🔴"
+                                    timing = "TODAY"
+                                elif heat.days_until == 1:
+                                    urgency = "🟠" 
+                                    timing = "TOMORROW"
+                                else:
+                                    urgency = "🟢"
+                                    timing = f"In {heat.days_until} days"
+                                
+                                st.markdown(f"""
+                                **{urgency} {name}** - {timing}
+                                - 📅 {heat.start_date} to {heat.end_date}
+                                - 🌡️ Max: {heat.max_temperature:.1f}°C
+                                - 🥵 Feels like: {heat.max_heat_index:.1f}°C
+                                - ⏱️ Duration: {heat.duration_days} day(s)
+                                - ⚠️ Severity: {heat.severity.replace('_', ' ').title()}
+                                """)
+                                st.divider()
+                        else:
+                            st.info(f"🌡️ **{name}**: No extreme heat in 7-day forecast")
+                    except Exception as e:
+                        st.error(f"Error fetching {name}: {e}")
+        
+        # District summary
+        st.divider()
+        st.subheader("📋 District Summary")
+        
+        try:
+            from ccmews_alert_service import AlertService
+            alert_service = AlertService()
+            summary = alert_service.get_district_summary()
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📍 Locations Monitored", summary.get("locations_monitored", 0))
+            with col2:
+                st.metric("📨 Alerts Today", summary.get("alerts_today", 0))
+            with col3:
+                rain = summary.get("next_rainfall")
+                if rain:
+                    st.metric("🌧️ Next Rain", f"{rain['days_until']}d", delta=f"{rain['total_precipitation_mm']}mm")
+                else:
+                    st.metric("🌧️ Next Rain", "None forecasted")
+        except Exception as e:
+            st.warning(f"Could not load district summary: {e}")
+    
+    else:
+        st.info("""
+        ### Setup Event Forecasting
+        
+        The event forecasting module uses Open-Meteo API to predict:
+        - When the next rainfall will occur
+        - When the next heat wave will hit
+        
+        To enable, ensure `ccmews_event_forecast.py` is in the same directory.
+        """)
+
+# ============================================================================
+# SMS ALERTS PAGE - Configuration and History
+# ============================================================================
+elif page == "📲 SMS Alerts":
+    st.title("📲 SMS Alert System")
+    st.caption("Configure and monitor SMS alerts for hazard notifications")
+    
+    # Try to import SMS system
+    try:
+        from ccmews_sms_alerts import AlertSystem, SMSConfig, AlertLogger
+        sms_available = True
+    except ImportError:
+        sms_available = False
+        st.warning("⚠️ SMS module not available. Install with: pip install africastalking")
+    
+    if sms_available:
+        config = SMSConfig()
+        alert_logger = AlertLogger()
+        
+        tab1, tab2, tab3 = st.tabs(["⚙️ Configuration", "👥 Recipients", "📜 Alert History"])
+        
+        with tab1:
+            st.subheader("SMS Provider Settings")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Status
+                enabled = config.config.get("enabled", False)
+                test_mode = config.config.get("test_mode", True)
+                
+                st.metric("Status", "🟢 Active" if enabled else "🔴 Disabled")
+                st.metric("Mode", "🧪 Test Mode" if test_mode else "📤 Live")
+                
+                st.divider()
+                
+                # Provider selection
+                provider = st.selectbox(
+                    "SMS Provider",
+                    ["frog", "africastalking", "twilio"],
+                    index=["frog", "africastalking", "twilio"].index(config.config.get("provider", "frog")),
+                    help="Frog by Wigal is recommended for Ghana"
+                )
+                
+                # Enable/disable toggles
+                enable_sms = st.toggle("Enable SMS Alerts", value=enabled)
+                test_mode_toggle = st.toggle("Test Mode (logs only)", value=test_mode)
+            
+            with col2:
+                st.markdown("### Alert Thresholds")
+                
+                thresholds = config.config.get("alert_thresholds", {})
+                
+                flood_thresh = st.slider(
+                    "Flood Risk Threshold", 0.0, 1.0, 
+                    thresholds.get("flood_risk", 0.45),
+                    help="Send alert when flood risk exceeds this"
+                )
+                
+                heat_thresh = st.slider(
+                    "Heat Risk Threshold", 0.0, 1.0,
+                    thresholds.get("heat_risk", 0.45)
+                )
+                
+                rain_thresh = st.slider(
+                    "Rainfall Alert (mm)", 0, 100,
+                    int(thresholds.get("rainfall_mm", 30)),
+                    help="Send alert for rainfall above this amount"
+                )
+                
+                temp_thresh = st.slider(
+                    "Temperature Alert (°C)", 30, 45,
+                    int(thresholds.get("temperature_c", 37))
+                )
+            
+            if st.button("💾 Save Configuration"):
+                config.config["enabled"] = enable_sms
+                config.config["test_mode"] = test_mode_toggle
+                config.config["provider"] = provider
+                config.config["alert_thresholds"]["flood_risk"] = flood_thresh
+                config.config["alert_thresholds"]["heat_risk"] = heat_thresh
+                config.config["alert_thresholds"]["rainfall_mm"] = rain_thresh
+                config.config["alert_thresholds"]["temperature_c"] = temp_thresh
+                config.save_config()
+                st.success("✅ Configuration saved!")
+            
+            # Provider credentials info
+            st.divider()
+            st.markdown("""
+            ### Provider Setup
+            
+            **Frog by Wigal** (Recommended for Ghana) 🇬🇭:
+            1. Sign up at [sms.wigal.com.gh](https://sms.wigal.com.gh)
+            2. Get your API Key and Username from dashboard
+            3. Register your Sender ID (e.g., "CCMEWS")
+            4. Set environment variables: `FROG_API_KEY` and `FROG_USERNAME`
+            
+            **Africa's Talking**:
+            1. Sign up at [africastalking.com](https://africastalking.com)
+            2. Get your username and API key
+            3. Set: `AT_USERNAME`, `AT_API_KEY`
+            
+            **Twilio** (International):
+            1. Sign up at [twilio.com](https://twilio.com)  
+            2. Get Account SID and Auth Token
+            3. Set: `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM`
+            """)
+        
+        with tab2:
+            st.subheader("Alert Recipients")
+            
+            recipients = config.config.get("recipients", [])
+            
+            if recipients:
+                df = pd.DataFrame(recipients)
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No recipients configured")
+            
+            st.divider()
+            st.markdown("### Add New Recipient")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                new_name = st.text_input("Name")
+                new_phone = st.text_input("Phone (+233XXXXXXXXX)")
+            with col2:
+                new_role = st.text_input("Role")
+                new_district = st.text_input("District", value="North Tongu")
+            
+            if st.button("➕ Add Recipient"):
+                if new_name and new_phone:
+                    config.add_recipient(new_name, new_phone, new_role, new_district)
+                    st.success(f"✅ Added {new_name}")
+                    st.rerun()
+                else:
+                    st.error("Name and phone are required")
+        
+        with tab3:
+            st.subheader("Recent Alerts")
+            
+            hours = st.selectbox("Time period", [24, 48, 72, 168], format_func=lambda x: f"Last {x} hours")
+            
+            alerts = alert_logger.get_recent_alerts(hours=hours)
+            
+            if alerts:
+                st.metric("Total Alerts", len(alerts))
+                
+                df = pd.DataFrame(alerts)
+                df = df[["timestamp", "alert_type", "severity", "location", "recipient_name", "status"]]
+                
+                # Color code status
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info(f"No alerts in the last {hours} hours")
+            
+            st.divider()
+            
+            # Test alert button
+            st.markdown("### Send Test Alert")
+            if st.button("📤 Send Test Alert"):
+                with st.spinner("Sending..."):
+                    try:
+                        alert_system = AlertSystem()
+                        result = alert_system.send_flood_alert(
+                            location="Test Location",
+                            risk=0.55,
+                            rainfall_mm=35,
+                            when="Test - No action needed"
+                        )
+                        if result.get("disabled"):
+                            st.warning("SMS alerts are disabled. Enable in Configuration tab.")
+                        elif result.get("no_recipients"):
+                            st.warning("No recipients configured. Add in Recipients tab.")
+                        elif result.get("sent", 0) > 0:
+                            st.success(f"✅ Test alert sent to {result['sent']} recipient(s)")
+                        else:
+                            st.error(f"Failed to send: {result}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+    
+    else:
+        st.info("""
+        ### Setup SMS Alerts
+        
+        The SMS alert system sends notifications to officials when hazards are forecasted.
+        
+        **Features:**
+        - Automatic alerts for heavy rainfall and extreme heat
+        - Configurable thresholds
+        - Multiple recipients
+        - Support for Frog by Wigal (recommended for Ghana), Africa's Talking, and Twilio
+        
+        **To enable:**
+        1. Install: `pip install requests` (for Frog)
+        2. Sign up at [sms.wigal.com.gh](https://sms.wigal.com.gh)
+        3. Get your API Key and Username
+        4. Configure in the SMS Alerts page
+        """)
+
+# ============================================================================
 # CLIMATE MAPS PAGE
 # ============================================================================
 elif page == "🌡️ Climate Maps":
@@ -1246,16 +1718,23 @@ elif page == "🌡️ Climate Maps":
     if map_style == "Raster":
         fig = create_raster_map(communities_df_all, climate_var, titles[climate_var],
                                colorscales_climate[climate_var], resolution=resolution,
-                               marker_df=communities_df)
+                               marker_df=communities_df, show_health_facilities=show_health_facilities)
         st.plotly_chart(fig, use_container_width=True)
     elif map_style == "Interactive":
         folium_map = create_folium_map(communities_df_all, climate_var, titles[climate_var],
-                                       gradients_climate[climate_var], marker_df=communities_df)
+                                       gradients_climate[climate_var], marker_df=communities_df,
+                                       show_health_facilities=show_health_facilities)
         st_folium(folium_map, width=None, height=550)
     else:
         fig = create_3d_surface(communities_df_all, climate_var, titles[climate_var],
                                colorscales_climate[climate_var])
         st.plotly_chart(fig, use_container_width=True)
+    
+    # Health Facilities Legend (when enabled)
+    if show_health_facilities:
+        st.markdown("""
+        **Health Facilities:** 🔴 Hospital | 🟠 Health Centre | 🟢 Clinic | 🔵 CHPS
+        """)
     
     st.divider()
     
@@ -1265,19 +1744,22 @@ elif page == "🌡️ Climate Maps":
     
     with col1:
         fig = create_raster_map(communities_df_all, "temp", "Temperature (°C)", "RdBu_r", 
-                               resolution=35, marker_df=communities_df)
+                               resolution=35, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         fig = create_raster_map(communities_df_all, "precip", "Precipitation (mm)", "Blues", 
-                               resolution=35, marker_df=communities_df)
+                               resolution=35, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
     
     with col3:
         fig = create_raster_map(communities_df_all, "humidity", "Humidity (%)", "Greens", 
-                               resolution=35, marker_df=communities_df)
+                               resolution=35, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1312,7 +1794,8 @@ elif page == "📊 Dashboard":
     with col1:
         st.subheader("🗺️ Composite Risk Map")
         fig = create_raster_map(communities_df_all, "composite", "Composite Risk", "RdYlGn_r",
-                               show_river=show_river, resolution=50, marker_df=communities_df)
+                               show_river=show_river, resolution=50, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=450)
         st.plotly_chart(fig, use_container_width=True)
     

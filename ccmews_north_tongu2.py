@@ -127,6 +127,50 @@ def load_district_boundary():
 # Load boundary data
 DISTRICT_BOUNDARY, DISTRICT_BOUNDS, DISTRICT_CENTER, GEOJSON_DATA = load_district_boundary()
 
+# Load Health Facilities GeoJSON
+HEALTH_FACILITIES_PATH = os.path.join(os.path.dirname(__file__), "health_facilities.geojson")
+
+@st.cache_data
+def load_health_facilities():
+    """Load health facilities from GeoJSON file"""
+    try:
+        with open(HEALTH_FACILITIES_PATH, 'r') as f:
+            geojson_data = json.load(f)
+        
+        facilities = []
+        for feature in geojson_data.get('features', []):
+            props = feature.get('properties', {})
+            # Use Latitude/Longitude from properties (more accurate than projected coordinates)
+            facilities.append({
+                'name': props.get('FacilityNa', 'Unknown'),
+                'type': props.get('Type', 'Unknown'),
+                'town': props.get('Town', 'Unknown'),
+                'ownership': props.get('Ownership', 'Unknown'),
+                'lat': props.get('Latitude', 0),
+                'lon': props.get('Longitude', 0)
+            })
+        
+        return facilities
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        return []
+
+# Health facility type colors
+HEALTH_FACILITY_COLORS = {
+    'Hospital': '#e31a1c',      # Red - highest level of care
+    'Health Centre': '#ff7f00', # Orange - secondary care
+    'Clinic': '#33a02c',        # Green - primary care
+    'CHPS': '#1f78b4',          # Blue - community health
+}
+
+def get_health_facility_color(facility_type):
+    """Get color for health facility type"""
+    return HEALTH_FACILITY_COLORS.get(facility_type, '#666666')
+
+# Load health facilities data
+HEALTH_FACILITIES = load_health_facilities()
+
 st.set_page_config(
     page_title="CCMEWS - North Tongu District",
     page_icon="🌍",
@@ -473,7 +517,7 @@ def create_interpolated_grid(df, value_col, resolution=60):
     
     return grid_lon, grid_lat, grid_values
 
-def create_raster_map(df, value_col, title, colorscale, show_river=False, resolution=60, marker_df=None):
+def create_raster_map(df, value_col, title, colorscale, show_river=False, resolution=60, marker_df=None, show_health_facilities=False):
     """Create raster heatmap for North Tongu
     
     Args:
@@ -484,6 +528,7 @@ def create_raster_map(df, value_col, title, colorscale, show_river=False, resolu
         show_river: Whether to show Volta River
         resolution: Grid resolution
         marker_df: Optional separate DataFrame for markers (if None, uses df)
+        show_health_facilities: Whether to show health facilities layer
     """
     bounds = NORTH_TONGU["bounds"]
     grid_lon, grid_lat, grid_values = create_interpolated_grid(df, value_col, resolution)
@@ -549,6 +594,42 @@ def create_raster_map(df, value_col, title, colorscale, show_river=False, resolu
             fill='none'
         ))
     
+    # Health Facilities layer
+    if show_health_facilities and HEALTH_FACILITIES:
+        # Group facilities by type for legend
+        facility_types = {'Hospital': [], 'Health Centre': [], 'Clinic': [], 'CHPS': []}
+        for facility in HEALTH_FACILITIES:
+            if facility['lat'] and facility['lon']:
+                ftype = facility['type']
+                if ftype in facility_types:
+                    facility_types[ftype].append(facility)
+                else:
+                    facility_types['CHPS'].append(facility)  # Default to CHPS
+        
+        # Add each facility type as a separate trace
+        symbols = {'Hospital': 'cross', 'Health Centre': 'square', 'Clinic': 'diamond', 'CHPS': 'circle'}
+        colors = {'Hospital': '#e31a1c', 'Health Centre': '#ff7f00', 'Clinic': '#33a02c', 'CHPS': '#1f78b4'}
+        
+        for ftype, facilities in facility_types.items():
+            if facilities:
+                fig.add_trace(go.Scatter(
+                    x=[f['lon'] for f in facilities],
+                    y=[f['lat'] for f in facilities],
+                    mode='markers',
+                    marker=dict(
+                        size=12,
+                        color=colors[ftype],
+                        symbol=symbols[ftype],
+                        line=dict(width=1, color='white')
+                    ),
+                    name=f"🏥 {ftype}",
+                    hovertemplate="<b>%{customdata[0]}</b><br>" +
+                                 "Type: %{customdata[1]}<br>" +
+                                 "Town: %{customdata[2]}<br>" +
+                                 "Ownership: %{customdata[3]}<extra></extra>",
+                    customdata=[[f['name'], f['type'], f['town'], f['ownership']] for f in facilities]
+                ))
+    
     # Community markers (grouped by type for cleaner legend)
     for _, row in display_df.iterrows():
         if row['type'] == 'capital':
@@ -588,7 +669,7 @@ def create_raster_map(df, value_col, title, colorscale, show_river=False, resolu
     
     return fig
 
-def create_folium_map(df, value_col, title, gradient=None, marker_df=None):
+def create_folium_map(df, value_col, title, gradient=None, marker_df=None, show_health_facilities=False):
     """Create Folium interactive map for North Tongu
     
     Args:
@@ -597,6 +678,7 @@ def create_folium_map(df, value_col, title, gradient=None, marker_df=None):
         title: Map title
         gradient: Color gradient for heatmap
         marker_df: Optional separate DataFrame for markers (if None, uses df)
+        show_health_facilities: Whether to show health facilities layer
     """
     center = NORTH_TONGU["center"]
     bounds = NORTH_TONGU["bounds"]
@@ -684,6 +766,37 @@ def create_folium_map(df, value_col, title, gradient=None, marker_df=None):
             popup='North Tongu District Boundary',
             tooltip='North Tongu District'
         ).add_to(m)
+    
+    # Add Health Facilities layer if enabled
+    if show_health_facilities and HEALTH_FACILITIES:
+        # Create a feature group for health facilities
+        health_group = folium.FeatureGroup(name='Health Facilities')
+        
+        for facility in HEALTH_FACILITIES:
+            if facility['lat'] and facility['lon']:
+                color = get_health_facility_color(facility['type'])
+                
+                # Use different icons based on facility type
+                if facility['type'] == 'Hospital':
+                    icon = folium.Icon(color='red', icon='hospital-o', prefix='fa')
+                elif facility['type'] == 'Health Centre':
+                    icon = folium.Icon(color='orange', icon='plus-square', prefix='fa')
+                elif facility['type'] == 'Clinic':
+                    icon = folium.Icon(color='green', icon='medkit', prefix='fa')
+                else:  # CHPS
+                    icon = folium.Icon(color='blue', icon='heartbeat', prefix='fa')
+                
+                folium.Marker(
+                    location=[facility['lat'], facility['lon']],
+                    popup=f"<b>{facility['name']}</b><br>"
+                          f"Type: {facility['type']}<br>"
+                          f"Town: {facility['town']}<br>"
+                          f"Ownership: {facility['ownership']}",
+                    tooltip=f"{facility['name']} ({facility['type']})",
+                    icon=icon
+                ).add_to(health_group)
+        
+        health_group.add_to(m)
     
     return m
 
@@ -820,6 +933,9 @@ with st.sidebar:
     resolution = st.slider("Resolution", 30, 100, 60, help="Higher = more detail")
     show_river = st.checkbox("Show Volta River", value=True)
     show_stations = st.checkbox("Show Monitoring Stations", value=True, help="Toggle visibility of automated monitoring stations")
+    show_health_facilities = st.checkbox("Show Health Facilities", value=False, help="Toggle visibility of health facilities (hospitals, clinics, CHPS)")
+    if HEALTH_FACILITIES:
+        st.caption(f"🏥 {len(HEALTH_FACILITIES)} facilities available")
     
     st.divider()
     
@@ -926,7 +1042,8 @@ if page == "🗺️ Hazard Maps":
             colorscales[hazard_type],
             show_river=(show_river and hazard_type == 'flood'),
             resolution=resolution,
-            marker_df=communities_df
+            marker_df=communities_df,
+            show_health_facilities=show_health_facilities
         )
         st.plotly_chart(fig, use_container_width=True)
         
@@ -935,7 +1052,8 @@ if page == "🗺️ Hazard Maps":
             communities_df_all, hazard_type,
             f"{hazard_type.title()} Risk",
             gradients[hazard_type],
-            marker_df=communities_df
+            marker_df=communities_df,
+            show_health_facilities=show_health_facilities
         )
         st_folium(folium_map, width=None, height=550)
         
@@ -949,6 +1067,12 @@ if page == "🗺️ Hazard Maps":
     **Risk Levels:** 🟢 Low (<0.3) | 🟡 Moderate (0.3-0.5) | 🟠 High (0.5-0.7) | 🔴 Critical (>0.7)
     """)
     
+    # Health Facilities Legend (when enabled)
+    if show_health_facilities:
+        st.markdown("""
+        **Health Facilities:** 🔴 Hospital | 🟠 Health Centre | 🟢 Clinic | 🔵 CHPS
+        """)
+    
     st.divider()
     
     # All hazards comparison
@@ -957,23 +1081,27 @@ if page == "🗺️ Hazard Maps":
     
     with col1:
         fig = create_raster_map(communities_df_all, "flood", "Flood Risk", colorscales["flood"], 
-                               show_river=show_river, resolution=40, marker_df=communities_df)
+                               show_river=show_river, resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
         
         fig = create_raster_map(communities_df_all, "drought", "Drought Risk", colorscales["drought"],
-                               resolution=40, marker_df=communities_df)
+                               resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         fig = create_raster_map(communities_df_all, "heat", "Heat Risk", colorscales["heat"],
-                               resolution=40, marker_df=communities_df)
+                               resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
         
         fig = create_raster_map(communities_df_all, "composite", "Composite Risk", colorscales["composite"],
-                               resolution=40, marker_df=communities_df)
+                               resolution=40, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1590,16 +1718,23 @@ elif page == "🌡️ Climate Maps":
     if map_style == "Raster":
         fig = create_raster_map(communities_df_all, climate_var, titles[climate_var],
                                colorscales_climate[climate_var], resolution=resolution,
-                               marker_df=communities_df)
+                               marker_df=communities_df, show_health_facilities=show_health_facilities)
         st.plotly_chart(fig, use_container_width=True)
     elif map_style == "Interactive":
         folium_map = create_folium_map(communities_df_all, climate_var, titles[climate_var],
-                                       gradients_climate[climate_var], marker_df=communities_df)
+                                       gradients_climate[climate_var], marker_df=communities_df,
+                                       show_health_facilities=show_health_facilities)
         st_folium(folium_map, width=None, height=550)
     else:
         fig = create_3d_surface(communities_df_all, climate_var, titles[climate_var],
                                colorscales_climate[climate_var])
         st.plotly_chart(fig, use_container_width=True)
+    
+    # Health Facilities Legend (when enabled)
+    if show_health_facilities:
+        st.markdown("""
+        **Health Facilities:** 🔴 Hospital | 🟠 Health Centre | 🟢 Clinic | 🔵 CHPS
+        """)
     
     st.divider()
     
@@ -1609,19 +1744,22 @@ elif page == "🌡️ Climate Maps":
     
     with col1:
         fig = create_raster_map(communities_df_all, "temp", "Temperature (°C)", "RdBu_r", 
-                               resolution=35, marker_df=communities_df)
+                               resolution=35, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         fig = create_raster_map(communities_df_all, "precip", "Precipitation (mm)", "Blues", 
-                               resolution=35, marker_df=communities_df)
+                               resolution=35, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
     
     with col3:
         fig = create_raster_map(communities_df_all, "humidity", "Humidity (%)", "Greens", 
-                               resolution=35, marker_df=communities_df)
+                               resolution=35, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1656,7 +1794,8 @@ elif page == "📊 Dashboard":
     with col1:
         st.subheader("🗺️ Composite Risk Map")
         fig = create_raster_map(communities_df_all, "composite", "Composite Risk", "RdYlGn_r",
-                               show_river=show_river, resolution=50, marker_df=communities_df)
+                               show_river=show_river, resolution=50, marker_df=communities_df,
+                               show_health_facilities=show_health_facilities)
         fig.update_layout(height=450)
         st.plotly_chart(fig, use_container_width=True)
     
