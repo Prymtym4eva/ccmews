@@ -172,7 +172,7 @@ def get_health_facility_color(facility_type):
 HEALTH_FACILITIES = load_health_facilities()
 
 st.set_page_config(
-    page_title="CCMEWS - North Tongu District",
+    page_title="ML/AI-Powered CCMEWS - North Tongu District",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -852,7 +852,7 @@ with st.sidebar:
     # District header
     st.markdown("""
     <div style="text-align: center; padding: 10px; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); border-radius: 10px; margin-bottom: 15px;">
-        <h2 style="color: white; margin: 0;">🌍 CCMEWS</h2>
+        <h2 style="color: white; margin: 0;">🌍 AI/ML - CCMEWS</h2>
         <p style="color: #ddd; margin: 5px 0; font-size: 14px;">North Tongu District</p>
     </div>
     """, unsafe_allow_html=True)
@@ -860,8 +860,8 @@ with st.sidebar:
     # District info
     st.info(f"📍 **Capital:** {NORTH_TONGU['capital']}\n\n"
             f"🗺️ **Region:** {NORTH_TONGU['region']}\n\n"
-            f"📐 **Area:** {NORTH_TONGU['area_km2']:,} km²\n\n"
-            f"👥 **Population:** ~{NORTH_TONGU['population']:,}")
+            f"📐 **Area:** {NORTH_TONGU['area_km2']:,} km²\n\n")
+            #f"👥 **Population:** ~{NORTH_TONGU['population']:,}")
     
     st.divider()
     
